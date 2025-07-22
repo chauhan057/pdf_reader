@@ -1,3 +1,11 @@
+// chnage this class as well
+
+//package com.example.pdf_reader
+//
+//import io.flutter.embedding.android.FlutterActivity
+//
+//class MainActivity : FlutterActivity()
+
 package com.example.pdf_reader
 
 import android.content.Intent
