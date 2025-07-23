@@ -36,8 +36,29 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> {
     _loadPdfFromIntent();
   }
 
+  Future<void> _requestStoragePermission() async {
+    if (Platform.isAndroid) {
+      if (await Permission.storage.isGranted) return;
+
+      if (await Permission.storage.request().isGranted) return;
+
+      // For Android 11+ request MANAGE_EXTERNAL_STORAGE
+      if (await Permission.manageExternalStorage.isGranted) return;
+
+      final status = await Permission.manageExternalStorage.request();
+      if (!status.isGranted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Storage permission is required to open PDF.')),
+        );
+        openAppSettings(); // Optional: direct user to settings
+        throw Exception("Permission not granted");
+      }
+    }
+  }
+
   Future<void> _loadPdfFromIntent() async {
     try {
+      await _requestStoragePermission(); // ask permission first
       final path = await platform.invokeMethod<String>('getPdfFilePath');
       if (path != null && File(path).existsSync()) {
         setState(() {
@@ -45,30 +66,26 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> {
         });
       }
     } catch (e) {
-      print("Failed to load intent file: $e");
+      print("Error reading file from intent: $e");
     }
   }
 
   Future<void> _pickPDF() async {
-    if (Platform.isAndroid) {
-      var status = await Permission.storage.request();
-      if (!status.isGranted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Storage permission is required to pick files.')),
-        );
-        return;
+    try {
+      await _requestStoragePermission(); // ask permission first
+
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        setState(() {
+          _pdfFile = File(result.files.single.path!);
+        });
       }
-    }
-
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf'],
-    );
-
-    if (result != null && result.files.single.path != null) {
-      setState(() {
-        _pdfFile = File(result.files.single.path!);
-      });
+    } catch (e) {
+      print("Error picking file: $e");
     }
   }
 
@@ -87,7 +104,7 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> {
       body: _pdfFile == null
           ? Center(
         child: Text(
-          "Tap the folder icon to open a PDF or use 'Open with' from file manager.",
+          "Tap the folder icon or open a PDF using 'Open with'.",
           style: TextStyle(fontSize: 16),
           textAlign: TextAlign.center,
         ),
