@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 void main() {
   runApp(MyApp());
@@ -89,15 +90,44 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> {
     }
   }
 
+  Future<void> _sharePDF() async {
+    if (_pdfFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No PDF file to share.')),
+      );
+      return;
+    }
+
+    try {
+      final xFile = XFile(_pdfFile!.path);
+      await Share.shareXFiles(
+        [xFile],
+        text: 'Sharing PDF file',
+        subject: 'PDF Document',
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error sharing PDF: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text("PDF Reader"),
         actions: [
+          if (_pdfFile != null)
+            IconButton(
+              icon: Icon(Icons.share),
+              onPressed: _sharePDF,
+              tooltip: 'Share PDF',
+            ),
           IconButton(
             icon: Icon(Icons.folder_open),
             onPressed: _pickPDF,
+            tooltip: 'Open PDF',
           ),
         ],
       ),
