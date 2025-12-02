@@ -1,0 +1,97 @@
+{
+  "project_info": {
+    "project_number": "859376292029",
+    "project_id": "instatax-9397d",
+    "storage_bucket": "instatax-9397d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:859376292029:android:adb3daf57a56fc5d94e7d4",
+        "android_client_info": {
+          "package_name": "com.example.pdf_reader"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "859376292029-vo78dhukvrrqardaehna7n8e3vvvici8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC4ZEI_Am0hNeEau-y94WnEAmGO656A1TA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "859376292029-vo78dhukvrrqardaehna7n8e3vvvici8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:859376292029:android:8e5b20f9eeb9281094e7d4",
+        "android_client_info": {
+          "package_name": "com.vishal.dev.insta_tax_ai"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "859376292029-vo78dhukvrrqardaehna7n8e3vvvici8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC4ZEI_Am0hNeEau-y94WnEAmGO656A1TA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "859376292029-vo78dhukvrrqardaehna7n8e3vvvici8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:859376292029:android:32dc05429ccfb62594e7d4",
+        "android_client_info": {
+          "package_name": "com.webelio.instatax"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "859376292029-vo78dhukvrrqardaehna7n8e3vvvici8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC4ZEI_Am0hNeEau-y94WnEAmGO656A1TA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "859376292029-vo78dhukvrrqardaehna7n8e3vvvici8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

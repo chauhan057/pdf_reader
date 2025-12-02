@@ -9,9 +9,18 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'services/pdf_history_service.dart';
 import 'screens/history_screen.dart';
 
+import 'package:firebase_core/firebase_core.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  try {
+    await Firebase.initializeApp();
+    print('🔥 Firebase initialized successfully');
+  } catch (e) {
+    print('❌ Error initializing Firebase: $e');
+  }
+
   try {
     await Hive.initFlutter();
     await PdfHistoryService.init();
@@ -21,7 +30,7 @@ void main() async {
     print('❌ Error initializing Hive: $e');
     // Continue anyway - history feature will be disabled
   }
-  
+
   runApp(MyApp());
 }
 
@@ -42,7 +51,8 @@ class PDFHomeScreen extends StatefulWidget {
   _PDFHomeScreenState createState() => _PDFHomeScreenState();
 }
 
-class _PDFHomeScreenState extends State<PDFHomeScreen> with WidgetsBindingObserver {
+class _PDFHomeScreenState extends State<PDFHomeScreen>
+    with WidgetsBindingObserver {
   static const platform = MethodChannel('pdf_opener_channel');
   File? _pdfFile;
 
@@ -63,7 +73,7 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> with WidgetsBindingObserv
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || 
+    if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
       // Save data when app goes to background
@@ -93,7 +103,9 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> with WidgetsBindingObserv
       final status = await Permission.manageExternalStorage.request();
       if (!status.isGranted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Storage permission is required to open PDF.')),
+          SnackBar(
+            content: Text('Storage permission is required to open PDF.'),
+          ),
         );
         openAppSettings(); // Optional: direct user to settings
         throw Exception("Permission not granted");
@@ -154,9 +166,9 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> with WidgetsBindingObserv
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error opening PDF: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error opening PDF: $e')));
     }
   }
 
@@ -164,18 +176,16 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> with WidgetsBindingObserv
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => HistoryScreen(
-          onPdfSelected: _openPdfFromPath,
-        ),
+        builder: (context) => HistoryScreen(onPdfSelected: _openPdfFromPath),
       ),
     );
   }
 
   Future<void> _sharePDF() async {
     if (_pdfFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No PDF file to share.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No PDF file to share.')));
       return;
     }
 
@@ -187,9 +197,9 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> with WidgetsBindingObserv
         subject: 'PDF Document',
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error sharing PDF: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error sharing PDF: $e')));
     }
   }
 
@@ -219,12 +229,12 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> with WidgetsBindingObserv
       ),
       body: _pdfFile == null
           ? Center(
-        child: Text(
-          "Tap the folder icon or open a PDF using 'Open with'.",
-          style: TextStyle(fontSize: 16),
-          textAlign: TextAlign.center,
-        ),
-      )
+              child: Text(
+                "Tap the folder icon or open a PDF using 'Open with'.",
+                style: TextStyle(fontSize: 16),
+                textAlign: TextAlign.center,
+              ),
+            )
           : SfPdfViewer.file(_pdfFile!),
     );
   }

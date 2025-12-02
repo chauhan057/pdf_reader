@@ -6,15 +6,36 @@ class PdfHistoryAdapter extends TypeAdapter<PdfHistory> {
 
   @override
   PdfHistory read(BinaryReader reader) {
+    final id = reader.readString();
+    final filePath = reader.readString();
+    final fileName = reader.readString();
+    final openedAt = DateTime.parse(reader.readString());
+    final lastAccessedAtStr = reader.readString();
+    final lastAccessedAt = lastAccessedAtStr.isEmpty
+        ? null
+        : DateTime.parse(lastAccessedAtStr);
+    final accessCount = reader.readInt();
+
+    // Handle backward compatibility for new fields
+    String? localPath;
+    if (reader.availableBytes > 0) {
+      localPath = reader.readString();
+    }
+
+    String? storageUrl;
+    if (reader.availableBytes > 0) {
+      storageUrl = reader.readString();
+    }
+
     return PdfHistory(
-      id: reader.readString(),
-      filePath: reader.readString(),
-      fileName: reader.readString(),
-      openedAt: DateTime.parse(reader.readString()),
-      lastAccessedAt: reader.readString().isEmpty
-          ? null
-          : DateTime.parse(reader.readString()),
-      accessCount: reader.readInt(),
+      id: id,
+      filePath: filePath,
+      fileName: fileName,
+      openedAt: openedAt,
+      lastAccessedAt: lastAccessedAt,
+      accessCount: accessCount,
+      localPath: localPath,
+      storageUrl: storageUrl,
     );
   }
 
@@ -26,6 +47,8 @@ class PdfHistoryAdapter extends TypeAdapter<PdfHistory> {
     writer.writeString(obj.openedAt.toIso8601String());
     writer.writeString(obj.lastAccessedAt?.toIso8601String() ?? '');
     writer.writeInt(obj.accessCount);
+    writer.writeString(obj.localPath ?? '');
+    writer.writeString(obj.storageUrl ?? '');
   }
 }
 
@@ -36,6 +59,8 @@ class PdfHistory extends HiveObject {
   DateTime openedAt;
   DateTime? lastAccessedAt;
   int accessCount;
+  String? localPath;
+  String? storageUrl;
 
   PdfHistory({
     required this.id,
@@ -44,6 +69,8 @@ class PdfHistory extends HiveObject {
     required this.openedAt,
     this.lastAccessedAt,
     this.accessCount = 1,
+    this.localPath,
+    this.storageUrl,
   });
 
   // Convert to Map for easy manipulation
@@ -55,6 +82,8 @@ class PdfHistory extends HiveObject {
       'openedAt': openedAt.toIso8601String(),
       'lastAccessedAt': lastAccessedAt?.toIso8601String(),
       'accessCount': accessCount,
+      'localPath': localPath,
+      'storageUrl': storageUrl,
     };
   }
 
@@ -69,7 +98,8 @@ class PdfHistory extends HiveObject {
           ? DateTime.parse(map['lastAccessedAt'])
           : null,
       accessCount: map['accessCount'] ?? 1,
+      localPath: map['localPath'],
+      storageUrl: map['storageUrl'],
     );
   }
 }
-

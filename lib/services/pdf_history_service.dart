@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import '../models/pdf_history.dart';
 
 class PdfHistoryService {
@@ -13,7 +14,7 @@ class PdfHistoryService {
     if (_storagePath != null) {
       return _storagePath!;
     }
-    
+
     try {
       // Get application documents directory (local storage)
       final directory = await getApplicationDocumentsDirectory();
@@ -33,35 +34,35 @@ class PdfHistoryService {
       // Get and log local storage path
       final storagePath = await _getLocalStoragePath();
       print('💾 Initializing local storage at: $storagePath');
-      
+
       // Initialize Hive with local storage
       // Hive.initFlutter() already uses local storage, but we verify it
       if (!Hive.isAdapterRegistered(0)) {
         Hive.registerAdapter(PdfHistoryAdapter());
         print('✅ PdfHistoryAdapter registered');
       }
-      
+
       // Check if box is already open
       if (_box != null && _box!.isOpen) {
         print('📦 Box already open with ${_box!.length} entries');
         return;
       }
-      
+
       // Try to open existing box first (don't delete existing data)
       try {
         // Open box - Hive stores in local app directory
         _box = await Hive.openBox<PdfHistory>(_boxName);
-        
+
         // Verify box is open and accessible
         if (!_box!.isOpen) {
           throw Exception('Box opened but not accessible');
         }
-        
+
         final entryCount = _box!.length;
         print('✅ Local storage box opened successfully');
         print('   📍 Storage Location: Local device (app documents directory)');
         print('   📊 Current entries: $entryCount');
-        
+
         // Verify we can read data
         if (entryCount > 0) {
           final firstEntry = _box!.values.first;
@@ -70,7 +71,8 @@ class PdfHistoryService {
       } catch (e) {
         print('❌ Error opening local storage box: $e');
         // Only delete and recreate if it's a corruption error
-        if (e.toString().contains('corrupt') || e.toString().contains('invalid')) {
+        if (e.toString().contains('corrupt') ||
+            e.toString().contains('invalid')) {
           print('⚠️ Attempting to recover from corruption...');
           try {
             await Hive.deleteBoxFromDisk(_boxName);
@@ -96,6 +98,85 @@ class PdfHistoryService {
       throw Exception('PdfHistoryService not initialized. Call init() first.');
     }
     return _box!;
+  }
+
+  // Helper to copy file to local storage
+  static Future<String?> _copyToLocalStorage(String sourcePath) async {
+    try {
+      final sourceFile = File(sourcePath);
+      if (!sourceFile.existsSync()) return null;
+
+      final appDir = await getApplicationDocumentsDirectory();
+      final savedPdfsDir = Directory('${appDir.path}/saved_pdfs');
+      if (!savedPdfsDir.existsSync()) {
+        await savedPdfsDir.create(recursive: true);
+      }
+
+      final fileName = sourcePath.split('/').last.split('\\').last;
+      // Use timestamp to avoid collisions if same filename is opened from different locations
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final newPath = '${savedPdfsDir.path}/${timestamp}_$fileName';
+
+      await sourceFile.copy(newPath);
+      print('✅ File copied to local storage: $newPath');
+      return newPath;
+    } catch (e) {
+      print('❌ Error copying file to local storage: $e');
+      return null;
+    }
+  }
+
+  // Helper to upload file to Firebase Storage
+  static Future<String?> _uploadToFirebase(String filePath) async {
+    try {
+      final file = File(filePath);
+      if (!file.existsSync()) return null;
+
+      final fileName = file.path.split('/').last.split('\\').last;
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      // Store in a generic 'pdfs' folder since we don't have user auth yet
+      final storageRef = FirebaseStorage.instance.ref().child(
+        'pdfs/${timestamp}_$fileName',
+      );
+
+      print('☁️ Uploading to Firebase Storage: ${storageRef.fullPath}');
+      await storageRef.putFile(file);
+
+      final downloadUrl = await storageRef.getDownloadURL();
+      print('✅ Upload successful. URL: $downloadUrl');
+      return downloadUrl;
+    } catch (e) {
+      print('❌ Error uploading to Firebase: $e');
+      return null;
+    }
+  }
+
+  // Helper to download file from Firebase Storage
+  static Future<String?> downloadFromFirebase(
+    String url,
+    String fileName,
+  ) async {
+    try {
+      print('☁️ Downloading from Firebase: $url');
+      final appDir = await getApplicationDocumentsDirectory();
+      final savedPdfsDir = Directory('${appDir.path}/saved_pdfs');
+      if (!savedPdfsDir.existsSync()) {
+        await savedPdfsDir.create(recursive: true);
+      }
+
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final localPath = '${savedPdfsDir.path}/${timestamp}_$fileName';
+      final file = File(localPath);
+
+      final ref = FirebaseStorage.instance.refFromURL(url);
+      await ref.writeToFile(file);
+
+      print('✅ Download successful: $localPath');
+      return localPath;
+    } catch (e) {
+      print('❌ Error downloading from Firebase: $e');
+      return null;
+    }
   }
 
   // CREATE - Add or update PDF to history
@@ -124,12 +205,40 @@ class PdfHistoryService {
         // UPDATE - File already in history, update access info
         existingEntry.lastAccessedAt = DateTime.now();
         existingEntry.accessCount = (existingEntry.accessCount) + 1;
+
+        // Ensure local copy exists if missing
+        if (existingEntry.localPath == null ||
+            !File(existingEntry.localPath!).existsSync()) {
+          final localPath = await _copyToLocalStorage(filePath);
+          if (localPath != null) {
+            existingEntry.localPath = localPath;
+          }
+        }
+
+        // Ensure uploaded to Firebase if missing
+        if (existingEntry.storageUrl == null) {
+          final storageUrl = await _uploadToFirebase(
+            existingEntry.localPath ?? filePath,
+          );
+          if (storageUrl != null) {
+            existingEntry.storageUrl = storageUrl;
+          }
+        }
+
         await existingEntry.save();
         // Force flush to disk to ensure persistence
         await box.flush();
-        print('✅ Updated history: $fileName (count: ${existingEntry.accessCount})');
+        print(
+          '✅ Updated history: $fileName (count: ${existingEntry.accessCount})',
+        );
       } else {
         // CREATE - New entry
+        // Copy file to local storage first
+        final localPath = await _copyToLocalStorage(filePath);
+
+        // Upload to Firebase
+        final storageUrl = await _uploadToFirebase(localPath ?? filePath);
+
         final historyEntry = PdfHistory(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           filePath: filePath,
@@ -137,12 +246,14 @@ class PdfHistoryService {
           openedAt: DateTime.now(),
           lastAccessedAt: DateTime.now(),
           accessCount: 1,
+          localPath: localPath,
+          storageUrl: storageUrl,
         );
         await box.add(historyEntry);
         // Force flush to disk to ensure persistence
         await box.flush();
         print('✅ Added to history: $fileName (Total entries: ${box.length})');
-        
+
         // Verify it was saved
         final verifyEntry = _findByPath(filePath);
         if (verifyEntry != null) {
@@ -166,7 +277,11 @@ class PdfHistoryService {
         return [];
       }
       final history = box.values.toList()
-        ..sort((a, b) => b.lastAccessedAt?.compareTo(a.lastAccessedAt ?? DateTime(1970)) ?? 0);
+        ..sort(
+          (a, b) =>
+              b.lastAccessedAt?.compareTo(a.lastAccessedAt ?? DateTime(1970)) ??
+              0,
+        );
       print('📖 Retrieved ${history.length} history entries');
       return history;
     } catch (e) {
@@ -225,6 +340,15 @@ class PdfHistoryService {
       }
       final entry = getById(id);
       if (entry != null) {
+        // Delete local file if exists
+        if (entry.localPath != null) {
+          final localFile = File(entry.localPath!);
+          if (localFile.existsSync()) {
+            await localFile.delete();
+            print('🗑️ Deleted local file: ${entry.localPath}');
+          }
+        }
+
         await entry.delete();
         // Force flush to disk to ensure persistence
         await box.flush();
@@ -241,6 +365,17 @@ class PdfHistoryService {
       if (_box == null || !_box!.isOpen) {
         return;
       }
+
+      // Delete all local files
+      for (var entry in box.values) {
+        if (entry.localPath != null) {
+          final localFile = File(entry.localPath!);
+          if (localFile.existsSync()) {
+            await localFile.delete();
+          }
+        }
+      }
+
       await box.clear();
       // Force flush to disk to ensure persistence
       await box.flush();
@@ -258,7 +393,14 @@ class PdfHistoryService {
       }
       final invalidEntries = <PdfHistory>[];
       for (var entry in box.values) {
-        if (!File(entry.filePath).existsSync()) {
+        // Check both original path and local path
+        // If we have a local path, the entry is valid even if original is gone
+        final originalExists = File(entry.filePath).existsSync();
+        final localExists =
+            entry.localPath != null && File(entry.localPath!).existsSync();
+        final hasCloudBackup = entry.storageUrl != null;
+
+        if (!originalExists && !localExists && !hasCloudBackup) {
           invalidEntries.add(entry);
         }
       }
@@ -327,14 +469,17 @@ class PdfHistoryService {
       print('   🔓 Is Open: ${_box!.isOpen}');
       print('   📊 Entry Count: ${_box!.length}');
       if (_box!.length > 0) {
-        print('   📄 Sample Entry: ${_box!.values.first.fileName}');
+        final first = _box!.values.first;
+        print('   📄 Sample Entry: ${first.fileName}');
+        print('   💾 Local Copy: ${first.localPath ?? "None"}');
+        print('   ☁️ Cloud URL: ${first.storageUrl ?? "None"}');
       }
       print('   💾 Data Location: Stored locally on device (not cloud)');
     } catch (e) {
       print('❌ Error verifying local storage: $e');
     }
   }
-  
+
   // Get storage info for user
   static Future<Map<String, dynamic>> getStorageInfo() async {
     try {
@@ -356,4 +501,3 @@ class PdfHistoryService {
     }
   }
 }
-

@@ -6,7 +6,8 @@ import '../services/pdf_history_service.dart';
 class HistoryScreen extends StatefulWidget {
   final Function(String) onPdfSelected;
 
-  const HistoryScreen({Key? key, required this.onPdfSelected}) : super(key: key);
+  const HistoryScreen({Key? key, required this.onPdfSelected})
+    : super(key: key);
 
   @override
   _HistoryScreenState createState() => _HistoryScreenState();
@@ -39,9 +40,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
         _isLoading = false;
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading history: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error loading history: $e')));
       }
     }
   }
@@ -51,15 +52,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
       await PdfHistoryService.deleteHistory(id);
       await _loadHistory();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('History entry deleted')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('History entry deleted')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error deleting: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error deleting: $e')));
       }
     }
   }
@@ -88,15 +89,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
         await PdfHistoryService.deleteAllHistory();
         await _loadHistory();
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('All history deleted')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('All history deleted')));
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error deleting all: $e')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error deleting all: $e')));
         }
       }
     }
@@ -140,130 +141,223 @@ class _HistoryScreenState extends State<HistoryScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _historyList.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.history, size: 64, color: Colors.grey),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'No PDF history yet',
-                        style: TextStyle(fontSize: 18, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Open a PDF to add it to history',
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
-                      ),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.history, size: 64, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No PDF history yet',
+                    style: TextStyle(fontSize: 18, color: Colors.grey),
                   ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadHistory,
-                  child: ListView.builder(
-                    itemCount: _historyList.length,
-                    itemBuilder: (context, index) {
-                      final history = _historyList[index];
-                      final fileExists = File(history.filePath).existsSync();
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Open a PDF to add it to history',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                ],
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadHistory,
+              child: ListView.builder(
+                itemCount: _historyList.length,
+                itemBuilder: (context, index) {
+                  final history = _historyList[index];
+                  // Check if original file exists
+                  final originalExists = File(history.filePath).existsSync();
+                  // Check if local copy exists
+                  final localExists =
+                      history.localPath != null &&
+                      File(history.localPath!).existsSync();
+                  // Check if cloud backup exists
+                  final hasCloudBackup = history.storageUrl != null;
 
-                      return Card(
-                        margin: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
+                  // File is accessible if any exists
+                  final isAccessible =
+                      originalExists || localExists || hasCloudBackup;
+
+                  return Card(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: isAccessible
+                            ? Colors.blue
+                            : Colors.grey,
+                        child: Icon(Icons.picture_as_pdf, color: Colors.white),
+                      ),
+                      title: Text(
+                        history.fileName,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          decoration: isAccessible
+                              ? TextDecoration.none
+                              : TextDecoration.lineThrough,
                         ),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: fileExists
-                                ? Colors.blue
-                                : Colors.grey,
-                            child: Icon(
-                              Icons.picture_as_pdf,
-                              color: Colors.white,
-                            ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 4),
+                          Text(
+                            'Opened: ${_formatDate(history.openedAt)}',
+                            style: const TextStyle(fontSize: 12),
                           ),
-                          title: Text(
-                            history.fileName,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              decoration: fileExists
-                                  ? TextDecoration.none
-                                  : TextDecoration.lineThrough,
+                          if (history.lastAccessedAt != null)
+                            Text(
+                              'Last accessed: ${_formatDate(history.lastAccessedAt!)}',
+                              style: const TextStyle(fontSize: 12),
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          Text(
+                            'Accessed ${history.accessCount} time${history.accessCount > 1 ? 's' : ''}',
+                            style: const TextStyle(fontSize: 12),
                           ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 4),
-                              Text(
-                                'Opened: ${_formatDate(history.openedAt)}',
-                                style: const TextStyle(fontSize: 12),
+                          if (!originalExists && localExists)
+                            const Text(
+                              'Using local copy',
+                              style: TextStyle(
+                                color: Colors.orange,
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
                               ),
-                              if (history.lastAccessedAt != null)
+                            ),
+                          if (!originalExists && !localExists && hasCloudBackup)
+                            const Text(
+                              'Available in cloud (tap to download)',
+                              style: TextStyle(
+                                color: Colors.blue,
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          if (!isAccessible)
+                            const Text(
+                              'File not found',
+                              style: TextStyle(color: Colors.red, fontSize: 12),
+                            ),
+                        ],
+                      ),
+                      trailing: PopupMenuButton(
+                        itemBuilder: (context) => [
+                          if (isAccessible)
+                            PopupMenuItem(
+                              value: 'open',
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.open_in_new, size: 20),
+                                  SizedBox(width: 8),
+                                  Text('Open'),
+                                ],
+                              ),
+                            ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: const Row(
+                              children: [
+                                Icon(Icons.delete, size: 20, color: Colors.red),
+                                SizedBox(width: 8),
                                 Text(
-                                  'Last accessed: ${_formatDate(history.lastAccessedAt!)}',
-                                  style: const TextStyle(fontSize: 12),
+                                  'Delete',
+                                  style: TextStyle(color: Colors.red),
                                 ),
-                              Text(
-                                'Accessed ${history.accessCount} time${history.accessCount > 1 ? 's' : ''}',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              if (!fileExists)
-                                const Text(
-                                  'File not found',
-                                  style: TextStyle(
-                                    color: Colors.red,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
-                          trailing: PopupMenuButton(
-                            itemBuilder: (context) => [
-                              if (fileExists)
-                                PopupMenuItem(
-                                  value: 'open',
-                                  child: const Row(
-                                    children: [
-                                      Icon(Icons.open_in_new, size: 20),
-                                      SizedBox(width: 8),
-                                      Text('Open'),
-                                    ],
+                        ],
+                        onSelected: (value) async {
+                          if (value == 'open' && isAccessible) {
+                            String? path;
+                            if (originalExists) {
+                              path = history.filePath;
+                            } else if (localExists) {
+                              path = history.localPath;
+                            } else if (hasCloudBackup) {
+                              // Download from cloud
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Downloading from cloud...'),
+                                ),
+                              );
+                              path =
+                                  await PdfHistoryService.downloadFromFirebase(
+                                    history.storageUrl!,
+                                    history.fileName,
+                                  );
+                              if (path != null) {
+                                // Update local path in history
+                                history.localPath = path;
+                                await history.save();
+                                setState(() {}); // Refresh UI
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Download failed'),
                                   ),
-                                ),
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: const Row(
-                                  children: [
-                                    Icon(Icons.delete, size: 20, color: Colors.red),
-                                    SizedBox(width: 8),
-                                    Text('Delete', style: TextStyle(color: Colors.red)),
-                                  ],
-                                ),
-                              ),
-                            ],
-                            onSelected: (value) {
-                              if (value == 'open' && fileExists) {
-                                widget.onPdfSelected(history.filePath);
-                                Navigator.pop(context);
-                              } else if (value == 'delete') {
-                                _deleteHistory(history.id);
+                                );
+                                return;
                               }
-                            },
-                          ),
-                          onTap: fileExists
-                              ? () {
-                                  widget.onPdfSelected(history.filePath);
-                                  Navigator.pop(context);
+                            }
+
+                            if (path != null) {
+                              widget.onPdfSelected(path);
+                              Navigator.pop(context);
+                            }
+                          } else if (value == 'delete') {
+                            _deleteHistory(history.id);
+                          }
+                        },
+                      ),
+                      onTap: isAccessible
+                          ? () async {
+                              String? path;
+                              if (originalExists) {
+                                path = history.filePath;
+                              } else if (localExists) {
+                                path = history.localPath;
+                              } else if (hasCloudBackup) {
+                                // Download from cloud
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Downloading from cloud...'),
+                                  ),
+                                );
+                                path =
+                                    await PdfHistoryService.downloadFromFirebase(
+                                      history.storageUrl!,
+                                      history.fileName,
+                                    );
+                                if (path != null) {
+                                  // Update local path in history
+                                  history.localPath = path;
+                                  await history.save();
+                                  setState(() {}); // Refresh UI
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Download failed'),
+                                    ),
+                                  );
+                                  return;
                                 }
-                              : null,
-                        ),
-                      );
-                    },
-                  ),
-                ),
+                              }
+
+                              if (path != null) {
+                                widget.onPdfSelected(path);
+                                Navigator.pop(context);
+                              }
+                            }
+                          : null,
+                    ),
+                  );
+                },
+              ),
+            ),
     );
   }
 }
-
