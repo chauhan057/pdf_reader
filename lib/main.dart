@@ -1,12 +1,27 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'services/pdf_history_service.dart';
+import 'screens/history_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  try {
+    await Hive.initFlutter();
+    await PdfHistoryService.init();
+    // Verify initialization
+    PdfHistoryService.verifyPersistence();
+  } catch (e) {
+    print('❌ Error initializing Hive: $e');
+    // Continue anyway - history feature will be disabled
+  }
+  
   runApp(MyApp());
 }
 
@@ -27,14 +42,43 @@ class PDFHomeScreen extends StatefulWidget {
   _PDFHomeScreenState createState() => _PDFHomeScreenState();
 }
 
-class _PDFHomeScreenState extends State<PDFHomeScreen> {
+class _PDFHomeScreenState extends State<PDFHomeScreen> with WidgetsBindingObserver {
   static const platform = MethodChannel('pdf_opener_channel');
   File? _pdfFile;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadPdfFromIntent();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    // Ensure data is saved when widget is disposed
+    _saveData();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || 
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      // Save data when app goes to background
+      _saveData();
+    }
+  }
+
+  Future<void> _saveData() async {
+    try {
+      // Force flush Hive box to ensure all data is written to disk
+      await PdfHistoryService.flush();
+      print('💾 Data saved to disk');
+    } catch (e) {
+      print('❌ Error saving data: $e');
+    }
   }
 
   Future<void> _requestStoragePermission() async {
@@ -65,6 +109,8 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> {
         setState(() {
           _pdfFile = File(path);
         });
+        // Save to history - wait for it to complete
+        await PdfHistoryService.addToHistory(path);
       }
     } catch (e) {
       print("Error reading file from intent: $e");
@@ -81,13 +127,48 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> {
       );
 
       if (result != null && result.files.single.path != null) {
+        final filePath = result.files.single.path!;
         setState(() {
-          _pdfFile = File(result.files.single.path!);
+          _pdfFile = File(filePath);
         });
+        // Save to history - wait for it to complete
+        await PdfHistoryService.addToHistory(filePath);
       }
     } catch (e) {
       print("Error picking file: $e");
     }
+  }
+
+  Future<void> _openPdfFromPath(String filePath) async {
+    try {
+      await _requestStoragePermission();
+      if (File(filePath).existsSync()) {
+        setState(() {
+          _pdfFile = File(filePath);
+        });
+        // Update history access - wait for it to complete
+        await PdfHistoryService.addToHistory(filePath);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PDF file no longer exists')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error opening PDF: $e')),
+      );
+    }
+  }
+
+  Future<void> _showHistory() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => HistoryScreen(
+          onPdfSelected: _openPdfFromPath,
+        ),
+      ),
+    );
   }
 
   Future<void> _sharePDF() async {
@@ -118,6 +199,11 @@ class _PDFHomeScreenState extends State<PDFHomeScreen> {
       appBar: AppBar(
         title: Text("PDF Reader"),
         actions: [
+          IconButton(
+            icon: Icon(Icons.history),
+            onPressed: _showHistory,
+            tooltip: 'View History',
+          ),
           if (_pdfFile != null)
             IconButton(
               icon: Icon(Icons.share),
