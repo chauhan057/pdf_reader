@@ -7,6 +7,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:image/image.dart' as img;
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:reorderable_grid_view/reorderable_grid_view.dart';
 import '../services/pdf_history_service.dart';
 
 class PdfScannerScreen extends StatefulWidget {
@@ -48,7 +50,7 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Take photos of documents to create a PDF',
+                    'Take photos of documents to create a PDF. Long press and drag to reorder pages.',
                     style: TextStyle(color: Colors.blue[900]),
                   ),
                 ),
@@ -87,22 +89,22 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
                       ],
                     ),
                   )
-                : GridView.builder(
+                : ReorderableGridView.count(
                     padding: const EdgeInsets.all(16),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                      childAspectRatio: 0.7,
-                    ),
-                    itemCount: _scannedImages.length,
-                    itemBuilder: (context, index) {
-                      return _ImageCard(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 0.7,
+                    onReorder: _reorderImages,
+                    children: List.generate(
+                      _scannedImages.length,
+                      (index) => _ImageCard(
+                        key: ValueKey(_scannedImages[index].path),
                         imageFile: _scannedImages[index],
+                        index: index,
                         onDelete: () => _removeImage(index),
-                      );
-                    },
+                      ),
+                    ),
                   ),
           ),
 
@@ -226,6 +228,17 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
     });
   }
 
+  void _reorderImages(int oldIndex, int newIndex) {
+    setState(() {
+      if (newIndex > oldIndex) {
+        newIndex -= 1;
+      }
+      final item = _scannedImages.removeAt(oldIndex);
+      _scannedImages.insert(newIndex, item);
+      _generatedPdf = null; // Reset PDF if order changes
+    });
+  }
+
   void _clearAll() {
     showDialog(
       context: context,
@@ -324,12 +337,7 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => Scaffold(
-            appBar: AppBar(
-              title: const Text('Scanned PDF'),
-            ),
-            body: SfPdfViewer.file(_generatedPdf!),
-          ),
+          builder: (context) => _PdfViewerScreen(pdfFile: _generatedPdf!),
         ),
       );
     }
@@ -338,12 +346,15 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
 
 class _ImageCard extends StatelessWidget {
   final XFile imageFile;
+  final int index;
   final VoidCallback onDelete;
 
   const _ImageCard({
+    required Key key,
     required this.imageFile,
+    required this.index,
     required this.onDelete,
-  });
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -358,6 +369,27 @@ class _ImageCard extends StatelessWidget {
             height: double.infinity,
           ),
         ),
+        // Page number badge
+        Positioned(
+          top: 8,
+          left: 8,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.6),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '${index + 1}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+        // Delete button
         Positioned(
           top: 8,
           right: 8,
@@ -371,7 +403,64 @@ class _ImageCard extends StatelessWidget {
             ),
           ),
         ),
+        // Drag handle indicator
+        Positioned(
+          bottom: 8,
+          right: 8,
+          child: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.6),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.drag_handle,
+              color: Colors.white,
+              size: 16,
+            ),
+          ),
+        ),
       ],
+    );
+  }
+}
+
+class _PdfViewerScreen extends StatelessWidget {
+  final File pdfFile;
+
+  const _PdfViewerScreen({required this.pdfFile});
+
+  Future<void> _sharePdf(BuildContext context) async {
+    try {
+      final xFile = XFile(pdfFile.path);
+      await Share.shareXFiles(
+        [xFile],
+        text: 'Sharing scanned PDF',
+        subject: 'Scanned Document',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error sharing PDF: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Scanned PDF'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: () => _sharePdf(context),
+            tooltip: 'Share PDF',
+          ),
+        ],
+      ),
+      body: SfPdfViewer.file(pdfFile),
     );
   }
 }
