@@ -9,6 +9,7 @@ import 'package:image/image.dart' as img;
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:reorderable_grid_view/reorderable_grid_view.dart';
+import 'package:image_cropper/image_cropper.dart';
 import '../services/pdf_history_service.dart';
 
 class PdfScannerScreen extends StatefulWidget {
@@ -70,7 +71,7 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Add pages from camera or gallery. Tap filter icon to apply filters. Long press and drag to reorder.',
+                    'Add pages from camera or gallery. Tap filter/crop icons to edit. Long press and drag to reorder.',
                     style: TextStyle(color: Colors.blue[900]),
                   ),
                 ),
@@ -124,6 +125,7 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
                         index: index,
                         onDelete: () => _removeImage(index),
                         onFilter: () => _showFilterOptions(index),
+                        onCrop: () => _cropExistingImage(index),
                       ),
                     ),
                   ),
@@ -286,14 +288,139 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
       );
 
       if (image != null) {
-        setState(() {
-          _scannedImages.add(_ScannedImage(file: image));
-        });
+        // Ask user if they want to crop
+        if (mounted) {
+          final shouldCrop = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Crop Image?'),
+              content: const Text('Do you want to crop this image before adding it?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Skip'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Crop'),
+                ),
+              ],
+            ),
+          );
+
+          if (shouldCrop == true) {
+            // Show crop option
+            try {
+              final croppedFile = await _cropImage(image.path);
+              if (croppedFile != null && mounted) {
+                setState(() {
+                  _scannedImages.add(_ScannedImage(
+                    file: XFile(croppedFile.path),
+                  ));
+                });
+                return;
+              }
+            } catch (e) {
+              // If cropping fails, add original image
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Crop failed, using original: $e')),
+                );
+              }
+            }
+          }
+          
+          // Add original image (either user skipped or crop failed)
+          if (mounted) {
+            setState(() {
+              _scannedImages.add(_ScannedImage(file: image));
+            });
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  Future<File?> _cropImage(String imagePath) async {
+    try {
+      // Verify file exists
+      final file = File(imagePath);
+      if (!await file.exists()) {
+        throw Exception('Image file does not exist: $imagePath');
+      }
+
+      final croppedFile = await ImageCropper().cropImage(
+        sourcePath: imagePath,
+        aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1.414), // A4 ratio
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Crop Image',
+            toolbarColor: Colors.blue,
+            toolbarWidgetColor: Colors.white,
+            initAspectRatio: CropAspectRatioPreset.ratio4x3,
+            lockAspectRatio: false,
+            hideBottomControls: false,
+            showCropGrid: true,
+          ),
+          IOSUiSettings(
+            title: 'Crop Image',
+            aspectRatioPresets: [
+              CropAspectRatioPreset.original,
+              CropAspectRatioPreset.square,
+              CropAspectRatioPreset.ratio4x3,
+            ],
+          ),
+        ],
+        compressFormat: ImageCompressFormat.jpg,
+        compressQuality: 90,
+      );
+
+      if (croppedFile != null) {
+        final croppedFilePath = croppedFile.path;
+        if (croppedFilePath.isNotEmpty) {
+          return File(croppedFilePath);
+        }
+      }
+      return null;
+    } catch (e, stackTrace) {
+      print('Error cropping image: $e');
+      print('Stack trace: $stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error cropping image: $e')),
+        );
+      }
+      return null;
+    }
+  }
+
+  Future<void> _cropExistingImage(int index) async {
+    final scannedImage = _scannedImages[index];
+    final imagePath = scannedImage.processedFile?.path ?? scannedImage.file.path;
+    
+    final croppedFile = await _cropImage(imagePath);
+    if (croppedFile != null) {
+      setState(() {
+        // Create new scanned image with cropped file
+        _scannedImages[index] = _ScannedImage(
+          file: XFile(croppedFile.path),
+          filter: ImageFilterType.original, // Reset filter
+        );
+        _generatedPdf = null; // Reset PDF
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Image cropped successfully'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     }
@@ -541,6 +668,7 @@ class _ImageCard extends StatelessWidget {
   final int index;
   final VoidCallback onDelete;
   final VoidCallback onFilter;
+  final VoidCallback onCrop;
 
   const _ImageCard({
     required Key key,
@@ -548,6 +676,7 @@ class _ImageCard extends StatelessWidget {
     required this.index,
     required this.onDelete,
     required this.onFilter,
+    required this.onCrop,
   }) : super(key: key);
 
   @override
@@ -630,6 +759,21 @@ class _ImageCard extends StatelessWidget {
               onPressed: onFilter,
               padding: EdgeInsets.zero,
               tooltip: 'Apply Filter',
+            ),
+          ),
+        ),
+        // Crop button
+        Positioned(
+          bottom: 50,
+          left: 8,
+          child: CircleAvatar(
+            radius: 18,
+            backgroundColor: Colors.green,
+            child: IconButton(
+              icon: const Icon(Icons.crop, size: 18, color: Colors.white),
+              onPressed: onCrop,
+              padding: EdgeInsets.zero,
+              tooltip: 'Crop Image',
             ),
           ),
         ),
