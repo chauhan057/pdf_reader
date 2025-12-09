@@ -18,9 +18,29 @@ class PdfScannerScreen extends StatefulWidget {
   _PdfScannerScreenState createState() => _PdfScannerScreenState();
 }
 
+enum ImageFilterType {
+  original,
+  grayscale,
+  blackWhite,
+  enhanced,
+  sepia,
+}
+
+class _ScannedImage {
+  final XFile file;
+  ImageFilterType filter;
+  File? processedFile;
+
+  _ScannedImage({
+    required this.file,
+    this.filter = ImageFilterType.original,
+    this.processedFile,
+  });
+}
+
 class _PdfScannerScreenState extends State<PdfScannerScreen> {
   final ImagePicker _picker = ImagePicker();
-  List<XFile> _scannedImages = [];
+  List<_ScannedImage> _scannedImages = [];
   bool _isProcessing = false;
   File? _generatedPdf;
 
@@ -50,7 +70,7 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Take photos of documents to create a PDF. Long press and drag to reorder pages.',
+                    'Add pages from camera or gallery. Tap filter icon to apply filters. Long press and drag to reorder.',
                     style: TextStyle(color: Colors.blue[900]),
                   ),
                 ),
@@ -99,10 +119,11 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
                     children: List.generate(
                       _scannedImages.length,
                       (index) => _ImageCard(
-                        key: ValueKey(_scannedImages[index].path),
-                        imageFile: _scannedImages[index],
+                        key: ValueKey(_scannedImages[index].file.path),
+                        scannedImage: _scannedImages[index],
                         index: index,
                         onDelete: () => _removeImage(index),
+                        onFilter: () => _showFilterOptions(index),
                       ),
                     ),
                   ),
@@ -143,9 +164,9 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _isProcessing ? null : _scanDocument,
-                        icon: const Icon(Icons.camera_alt),
-                        label: const Text('Scan Page'),
+                        onPressed: _isProcessing ? null : _showImageSourceDialog,
+                        icon: const Icon(Icons.add_photo_alternate),
+                        label: const Text('Add Page'),
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                         ),
@@ -186,36 +207,204 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
     );
   }
 
-  Future<void> _scanDocument() async {
-    try {
-      // Request camera permission
-      final cameraStatus = await Permission.camera.request();
-      if (!cameraStatus.isGranted) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Camera permission is required to scan documents'),
+  void _showImageSourceDialog() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Add Page',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
             ),
-          );
+            ListTile(
+              leading: const Icon(Icons.camera_alt, color: Colors.blue),
+              title: const Text('Take Photo'),
+              subtitle: const Text('Use camera to capture document'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library, color: Colors.green),
+              title: const Text('Pick from Gallery'),
+              subtitle: const Text('Select image from gallery'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      if (source == ImageSource.camera) {
+        // Request camera permission
+        final cameraStatus = await Permission.camera.request();
+        if (!cameraStatus.isGranted) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Camera permission is required'),
+              ),
+            );
+          }
+          return;
         }
-        return;
+      } else {
+        // Request storage permission for gallery
+        final storageStatus = await Permission.photos.request();
+        if (!storageStatus.isGranted && !await Permission.storage.isGranted) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Storage permission is required'),
+              ),
+            );
+          }
+          return;
+        }
       }
 
-      // Take picture
+      // Pick image
       final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 85,
+        source: source,
+        imageQuality: 90,
       );
 
       if (image != null) {
         setState(() {
-          _scannedImages.add(image);
+          _scannedImages.add(_ScannedImage(file: image));
         });
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error scanning: $e')),
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  void _showFilterOptions(int index) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Apply Filter',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            _FilterOption(
+              name: 'Original',
+              icon: Icons.image,
+              isSelected: _scannedImages[index].filter == ImageFilterType.original,
+              onTap: () => _applyFilter(index, ImageFilterType.original),
+            ),
+            _FilterOption(
+              name: 'Grayscale',
+              icon: Icons.filter_b_and_w,
+              isSelected: _scannedImages[index].filter == ImageFilterType.grayscale,
+              onTap: () => _applyFilter(index, ImageFilterType.grayscale),
+            ),
+            _FilterOption(
+              name: 'Black & White',
+              icon: Icons.contrast,
+              isSelected: _scannedImages[index].filter == ImageFilterType.blackWhite,
+              onTap: () => _applyFilter(index, ImageFilterType.blackWhite),
+            ),
+            _FilterOption(
+              name: 'Enhanced',
+              icon: Icons.auto_fix_high,
+              isSelected: _scannedImages[index].filter == ImageFilterType.enhanced,
+              onTap: () => _applyFilter(index, ImageFilterType.enhanced),
+            ),
+            _FilterOption(
+              name: 'Sepia',
+              icon: Icons.color_lens,
+              isSelected: _scannedImages[index].filter == ImageFilterType.sepia,
+              onTap: () => _applyFilter(index, ImageFilterType.sepia),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _applyFilter(int index, ImageFilterType filterType) async {
+    Navigator.pop(context);
+    
+    setState(() {
+      _scannedImages[index].filter = filterType;
+      _scannedImages[index].processedFile = null; // Reset processed file
+      _generatedPdf = null; // Reset PDF
+    });
+
+    // Process image with filter
+    try {
+      final scannedImage = _scannedImages[index];
+      final imageBytes = await File(scannedImage.file.path).readAsBytes();
+      img.Image? image = img.decodeImage(imageBytes);
+
+      if (image != null) {
+        img.Image processedImage = image;
+
+        switch (filterType) {
+          case ImageFilterType.original:
+            processedImage = image;
+            break;
+          case ImageFilterType.grayscale:
+            processedImage = img.grayscale(image);
+            break;
+          case ImageFilterType.blackWhite:
+            processedImage = img.grayscale(image);
+            processedImage = img.adjustColor(processedImage, brightness: 1.1, contrast: 1.3);
+            break;
+          case ImageFilterType.enhanced:
+            processedImage = img.adjustColor(image, brightness: 1.1, contrast: 1.2, saturation: 1.1);
+            break;
+          case ImageFilterType.sepia:
+            processedImage = img.sepia(image);
+            break;
+        }
+
+        // Save processed image
+        final directory = await getApplicationDocumentsDirectory();
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final processedPath = '${directory.path}/processed_${index}_$timestamp.jpg';
+        final processedFile = File(processedPath);
+        await processedFile.writeAsBytes(img.encodeJpg(processedImage, quality: 90));
+
+        setState(() {
+          _scannedImages[index].processedFile = processedFile;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error applying filter: $e')),
         );
       }
     }
@@ -275,9 +464,12 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
     try {
       final pdf = pw.Document();
 
-      for (var imageFile in _scannedImages) {
+      for (var scannedImage in _scannedImages) {
+        // Use processed file if available, otherwise use original
+        final imageFile = scannedImage.processedFile ?? File(scannedImage.file.path);
+        
         // Read image file
-        final imageBytes = await File(imageFile.path).readAsBytes();
+        final imageBytes = await imageFile.readAsBytes();
         final image = img.decodeImage(imageBytes);
 
         if (image != null) {
@@ -345,25 +537,30 @@ class _PdfScannerScreenState extends State<PdfScannerScreen> {
 }
 
 class _ImageCard extends StatelessWidget {
-  final XFile imageFile;
+  final _ScannedImage scannedImage;
   final int index;
   final VoidCallback onDelete;
+  final VoidCallback onFilter;
 
   const _ImageCard({
     required Key key,
-    required this.imageFile,
+    required this.scannedImage,
     required this.index,
     required this.onDelete,
+    required this.onFilter,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final imageFile = scannedImage.processedFile ?? File(scannedImage.file.path);
+    final hasFilter = scannedImage.filter != ImageFilterType.original;
+
     return Stack(
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(12),
           child: Image.file(
-            File(imageFile.path),
+            imageFile,
             fit: BoxFit.cover,
             width: double.infinity,
             height: double.infinity,
@@ -389,6 +586,24 @@ class _ImageCard extends StatelessWidget {
             ),
           ),
         ),
+        // Filter indicator
+        if (hasFilter)
+          Positioned(
+            top: 8,
+            left: 50,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.filter_alt,
+                color: Colors.white,
+                size: 14,
+              ),
+            ),
+          ),
         // Delete button
         Positioned(
           top: 8,
@@ -400,6 +615,21 @@ class _ImageCard extends StatelessWidget {
               icon: const Icon(Icons.close, size: 18, color: Colors.white),
               onPressed: onDelete,
               padding: EdgeInsets.zero,
+            ),
+          ),
+        ),
+        // Filter button
+        Positioned(
+          bottom: 8,
+          left: 8,
+          child: CircleAvatar(
+            radius: 18,
+            backgroundColor: Colors.blue,
+            child: IconButton(
+              icon: const Icon(Icons.tune, size: 18, color: Colors.white),
+              onPressed: onFilter,
+              padding: EdgeInsets.zero,
+              tooltip: 'Apply Filter',
             ),
           ),
         ),
@@ -421,6 +651,41 @@ class _ImageCard extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _FilterOption extends StatelessWidget {
+  final String name;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _FilterOption({
+    required this.name,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(
+        icon,
+        color: isSelected ? Colors.blue : Colors.grey,
+      ),
+      title: Text(
+        name,
+        style: TextStyle(
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          color: isSelected ? Colors.blue : Colors.black,
+        ),
+      ),
+      trailing: isSelected
+          ? const Icon(Icons.check, color: Colors.blue)
+          : null,
+      onTap: onTap,
     );
   }
 }
