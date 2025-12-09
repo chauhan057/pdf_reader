@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'services/pdf_history_service.dart';
 import 'screens/history_screen.dart';
+import 'screens/features_screen.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 
@@ -181,6 +182,15 @@ class _PDFHomeScreenState extends State<PDFHomeScreen>
     );
   }
 
+  void _showFeatures() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const FeaturesScreen(),
+      ),
+    );
+  }
+
   Future<void> _sharePDF() async {
     if (_pdfFile == null) {
       ScaffoldMessenger.of(
@@ -224,6 +234,11 @@ class _PDFHomeScreenState extends State<PDFHomeScreen>
             icon: Icon(Icons.folder_open),
             onPressed: _pickPDF,
             tooltip: 'Open PDF',
+          ),
+          IconButton(
+            icon: Icon(Icons.apps),
+            onPressed: _showFeatures,
+            tooltip: 'More Features',
           ),
         ],
       ),
